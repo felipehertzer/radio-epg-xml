@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - name: Validate gzip integrity
+        run: gzip --test epg.xml.gz
+      - name: Validate XMLTV content
+        run: |
+          python - <<'PY'
+          import gzip
+          import xml.etree.ElementTree as ET
+
+          root = None
+          channels = 0
+          programmes = 0
+          with gzip.open("epg.xml.gz", "rb") as stream:
+              for _, element in ET.iterparse(stream, events=("start",)):
+                  tag = element.tag.rsplit("}", 1)[-1]
+                  if root is None:
+                      root = tag
+                  elif tag == "channel":
+                      channels += 1
+                  elif tag == "programme":
+                      programmes += 1
+
+          if root != "tv":
+              raise SystemExit(f"Expected XMLTV root 'tv', got {root!r}")
+          if channels == 0 or programmes == 0:
+              raise SystemExit(
+                  f"Expected channels and programmes, got {channels} channels and {programmes} programmes"
+              )
+          print(f"Validated {channels} channels and {programmes} programmes")
+          PY
